@@ -15,10 +15,19 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// LevelStruct is a struct for holding the data structure containing the current and the maximum level of a container
+// LevelStruct is a struct for holding the [current, maximum] level
 type LevelStruct struct {
 	Current float32 `json:"current"`
 	Maximum float32 `json:"maximum"`
+}
+
+// StatusStruct is a struct for holding the [current, maximum] level, deviceId, wirelessNetwork, lastSeen
+type StatusStruct struct {
+	CurrentLevel float32 `json:"currentLevel"`
+	MaximumLevel float32 `json:"maximumLevel"`
+	DeviceID string `json:"deviceId"`
+	WirelessNetwork string `json:"wirelessNetwork"`
+	LastSeen string `json:"lastSeen"`
 }
 
 var db *sql.DB
@@ -42,6 +51,7 @@ func main() {
 
 	kgasRouter.HandleFunc("/", GetRoot).Methods("GET")
 	kgasRouter.HandleFunc("/api/update/level/", UpdateLevel).Methods("POST")
+	kgasRouter.HandleFunc("/api/get/status/", GetStatus).Methods("GET")
 	kgasRouter.HandleFunc("/api/get/level/", GetLevel).Methods("GET")
 
 	http.Handle("/", router)
@@ -79,6 +89,52 @@ func GetLevel(w http.ResponseWriter, r *http.Request) {
 		responseData := LevelStruct{
 			Current: currentWeight,
 			Maximum: maxWeight,
+		}
+
+		payloadJSON, err := json.Marshal(responseData)
+		if err != nil {
+			log.Println(err)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(payloadJSON)
+
+		return
+	}
+
+	payload := []byte("Request Arguments(s) missing")
+	w.Write(payload)
+}
+
+// GetStatus returns the current level
+func GetStatus(w http.ResponseWriter, r *http.Request) {
+	customerID, ok := r.URL.Query()["c"]
+
+	if ok && customerID != nil {
+		getLevelQuery := fmt.Sprintf(`SELECT currentWeight, maxWeight, deviceId, wirelessNetwork, lastSeen FROM levelMeter
+			WHERE customerId='%s'
+		`, customerID[0])
+
+		var currentWeight float32
+		var maxWeight float32
+		var deviceID string
+		var wirelessNetwork string
+		var lastSeen string
+
+		err := db.QueryRow(getLevelQuery).Scan(&currentWeight, &maxWeight, &deviceID, &wirelessNetwork, &lastSeen)
+		if err != nil {
+			payload := []byte("Invalid Argument")
+			w.Write(payload)
+
+			return
+		}
+
+		responseData := StatusStruct{
+			CurrentLevel: currentWeight,
+			MaximumLevel: maxWeight,
+			DeviceID: deviceID,
+			WirelessNetwork: wirelessNetwork,
+			LastSeen: lastSeen,
 		}
 
 		payloadJSON, err := json.Marshal(responseData)
