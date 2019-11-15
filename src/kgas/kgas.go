@@ -10,6 +10,7 @@ import (
 	"net/http"
 
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
 )
@@ -47,7 +48,7 @@ func main() {
 
 
 	log.Println("Server started on port 999")
-	log.Fatal(http.ListenAndServe(":999", nil))
+	log.Fatal(http.ListenAndServe(":999", handlers.CORS(handlers.AllowedHeaders([]string{"X-Requested-With", "Content-Type", "Authorization"}), handlers.AllowedMethods([]string{"GET", "POST", "PUT", "HEAD", "OPTIONS"}), handlers.AllowedOrigins([]string{"*"}))(router)))
 }
 
 // GetRoot returns OK if the server is alive
