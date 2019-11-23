@@ -1,7 +1,7 @@
 package main
 
 import (
-	// "strings"
+	"strings"
 	"encoding/json"
 	"database/sql"
 	"fmt"
@@ -63,6 +63,7 @@ func main() {
 
 // GetRoot returns OK if the server is alive
 func GetRoot(w http.ResponseWriter, r *http.Request) {
+	CreateLevelAlertNoti("ROUNAK123", 55.67)
 	payload := []byte("OK")
 	w.Write(payload)
 }
@@ -171,6 +172,7 @@ func UpdateLevel(w http.ResponseWriter, r *http.Request) {
 	var result map[string]bool
 
 	if err != nil {
+		log.Println(err);
 		result = map[string]bool {
 			"success": false,
 		}
@@ -188,3 +190,48 @@ func UpdateLevel(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(payloadJSON)
 }
+
+// CreateLevelAlertNoti creates a custom message for a particular user
+func CreateLevelAlertNoti(userID string, level float32) {
+	emoji := "🔔"
+
+	// logic to decide emoji
+	if (level >= 75) {
+		emoji = "💯"
+	} else if (level >= 40 && level < 75) {
+		emoji = "🙂"
+	} else if (level >= 20 && level < 40) {
+		emoji = "😟"
+	} else {
+		emoji = "😣"
+	}
+
+	notiHeading := "Kezpo Gas Level Alert"
+	notiContent := fmt.Sprintf(`Your propane level is now %.2f%s %s`, level, "%", emoji)
+
+	SendNoti(notiHeading, notiContent)
+} 
+
+// SendNoti sends a push notification to a particular client
+func SendNoti(notiHeading string, notiContent string) {
+
+	baseURL := "https://onesignal.com/api/v1/notifications"
+	payload := strings.NewReader(fmt.Sprintf("{\"app_id\": \"185a1a32-b95b-4b9f-b752-b9ed84ee3d73\", \"headings\": { \"en\": \"%s\"}, \"contents\": {\"en\": \"%s\"}, \"included_segments\": [\"Subscribed Users\"]}", notiHeading, notiContent))
+
+	req, _ := http.NewRequest("POST", baseURL, payload)
+	req.Header.Add("Content-Type", "application/json; charset=utf-8")
+	req.Header.Add("Authorization", "Basic YzAzMTVkMzgtYjQzMy00YjhhLTk0Y2ItY2Y3MzIzZTdkNWRi")
+
+	res, err := http.DefaultClient.Do(req)
+
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	defer res.Body.Close()
+	// body, _ := ioutil.ReadAll(res.Body)
+
+	// fmt.Println(res)
+	// fmt.Println(string(body))
+} 
