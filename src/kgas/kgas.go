@@ -8,6 +8,7 @@ import (
 	"os"
 	"log"
 	"net/http"
+	"strconv"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/handlers"
@@ -50,9 +51,14 @@ func main() {
 	kgasRouter := router.PathPrefix("/kgas").Subrouter()
 
 	kgasRouter.HandleFunc("/", GetRoot).Methods("GET")
+
+	// routes for level-related
 	kgasRouter.HandleFunc("/api/update/level/", UpdateLevel).Methods("POST")
 	kgasRouter.HandleFunc("/api/get/status/", GetStatus).Methods("GET")
 	kgasRouter.HandleFunc("/api/get/level/", GetLevel).Methods("GET")
+
+	// routes for alerts-related
+	kgasRouter.HandleFunc("/api/set/alert/", SetNewAlert).Methods("POST")
 
 	http.Handle("/", router)
 
@@ -63,7 +69,6 @@ func main() {
 
 // GetRoot returns OK if the server is alive
 func GetRoot(w http.ResponseWriter, r *http.Request) {
-	CreateLevelAlertNoti("ROUNAK123", 55.67)
 	payload := []byte("OK")
 	w.Write(payload)
 }
@@ -189,10 +194,77 @@ func UpdateLevel(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(payloadJSON)
+
+	TriggerAlert("ROUNAK123", levelValue)
+}
+
+// SetNewAlert creates a new alert registered
+func SetNewAlert(w http.ResponseWriter, r *http.Request) {
+
+	customerID := r.FormValue("customerId")
+	deviceID := r.FormValue("deviceId")
+	alertLevel := r.FormValue("alertLevel")
+
+	// get the max weight
+	getMaximumLevelQuery := fmt.Sprintf(`SELECT maxWeight FROM levelMeter WHERE customerId='%s'`, customerID)
+	var maximumLevelValueString string
+	db.QueryRow(getMaximumLevelQuery).Scan(&maximumLevelValueString)
+
+	alertLevelPercentage, _ := strconv.ParseFloat(alertLevel, 32)
+	maximumLevelValue, _ := strconv.ParseFloat(maximumLevelValueString, 32)
+
+	alertLevelValue := (alertLevelPercentage * maximumLevelValue) / 100;
+
+	newAlertQuery := fmt.Sprintf(`INSERT INTO levelAlerts
+		(customerId, deviceId, alertLevelPercentage, alertLevelValue)
+		VALUES ('%s', '%s', %s, %f)
+	`, customerID, deviceID, alertLevel, alertLevelValue)
+
+	_, err := db.Query(newAlertQuery)
+
+	var result map[string]bool
+
+	if err != nil {
+		result = map[string]bool {
+			"success": false,
+		}
+	} else {
+		result = map[string]bool {
+			"success": true,
+		}
+	}
+
+	payloadJSON, err := json.Marshal(result)
+	if err != nil {
+		log.Println(err)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(payloadJSON)
+}
+
+// TriggerAlert triggers an alert if set
+func TriggerAlert(customerID string, currentLevel string) {
+	nearestAlertQuery := fmt.Sprintf(`SELECT deviceId, alertLevelPercentage FROM levelAlerts
+		WHERE alertLevelValue <= (%s + 10) AND alertLevelValue >= %s
+		ORDER BY alertLevelValue DESC LIMIT 1`, currentLevel, currentLevel)
+
+	var deviceID string
+	var desiredLevel string
+	err := db.QueryRow(nearestAlertQuery).Scan(&deviceID, &desiredLevel)
+
+	if err != nil {
+		return
+	}
+
+	desiredLevelFloat, _ := strconv.ParseFloat(desiredLevel, 32)
+
+	log.Println("Now sending notification")
+	CreateLevelAlertNoti(deviceID, desiredLevelFloat)
 }
 
 // CreateLevelAlertNoti creates a custom message for a particular user
-func CreateLevelAlertNoti(userID string, level float32) {
+func CreateLevelAlertNoti(deviceID string, level float64) {
 	emoji := "🔔"
 
 	// logic to decide emoji
@@ -210,6 +282,7 @@ func CreateLevelAlertNoti(userID string, level float32) {
 	notiContent := fmt.Sprintf(`Your propane level is now %.2f%s %s`, level, "%", emoji)
 
 	SendNoti(notiHeading, notiContent)
+	log.Println("Notification sending success: " + deviceID)
 } 
 
 // SendNoti sends a push notification to a particular client
