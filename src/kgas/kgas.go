@@ -52,6 +52,9 @@ func main() {
 
 	kgasRouter.HandleFunc("/", GetRoot).Methods("GET")
 
+	// routes for customer-related
+	kgasRouter.HandleFunc("/api/register/customer/", RegisterCustomer).Methods("POST")
+
 	// routes for level-related
 	kgasRouter.HandleFunc("/api/update/level/", UpdateLevel).Methods("POST")
 	kgasRouter.HandleFunc("/api/get/status/", GetStatus).Methods("GET")
@@ -73,14 +76,46 @@ func GetRoot(w http.ResponseWriter, r *http.Request) {
 	w.Write(payload)
 }
 
+// RegisterCustomer registers the customer to be listening to a device
+func RegisterCustomer(w http.ResponseWriter, r *http.Request) {
+	deviceID := r.FormValue("deviceId")
+	customerID := r.FormValue("customerId")
+	maxWeight := r.FormValue("maxWeight")
+
+	registerCustomerQuery := fmt.Sprintf(`INSERT INTO levelMeter (customerId, maxWeight, deviceId)
+		VALUES ('%s', %s, '%s')`, customerID, maxWeight, deviceID)
+
+	_, err := db.Query(registerCustomerQuery)
+	var result map[string]bool
+
+	if err != nil {
+		log.Println(err);
+		result = map[string]bool {
+			"success": false,
+		}
+	} else {
+		result = map[string]bool {
+			"success": true,
+		}
+	}
+
+	payloadJSON, err := json.Marshal(result)
+	if err != nil {
+		log.Println(err)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(payloadJSON)
+}
+
 // GetLevel returns the current level
 func GetLevel(w http.ResponseWriter, r *http.Request) {
-	customerID, ok := r.URL.Query()["c"]
+	deviceID, ok := r.URL.Query()["d"]
 
-	if ok && customerID != nil {
+	if ok && deviceID != nil {
 		getLevelQuery := fmt.Sprintf(`SELECT currentWeight, maxWeight FROM levelMeter
-			WHERE customerId='%s'
-		`, customerID[0])
+			WHERE deviceId='%s'
+		`, deviceID[0])
 
 		var currentWeight float32
 		var maxWeight float32
@@ -161,15 +196,15 @@ func GetStatus(w http.ResponseWriter, r *http.Request) {
 // UpdateLevel returns success if the table updation with the latest value is successful
 func UpdateLevel(w http.ResponseWriter, r *http.Request) {
 
-	customerID := r.FormValue("customerId")
+	deviceID := r.FormValue("deviceId")
 	levelValue := r.FormValue("level")
 
 	levelUpdateQuery := fmt.Sprintf(`UPDATE levelMeter
 		SET
 			currentWeight=%s
 		WHERE
-			customerId='%s'
-	`, levelValue, customerID)
+			deviceId='%s'
+	`, levelValue, deviceID)
 
 
 	_, err := db.Query(levelUpdateQuery)
