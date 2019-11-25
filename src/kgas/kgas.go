@@ -16,6 +16,13 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// CustomerInformation is a struct for holding the registerCustomer data
+type CustomerInformation struct {
+	DeviceID string
+	CustomerID string
+	MaximumWeight string
+}
+
 // LevelStruct is a struct for holding the [current, maximum] level
 type LevelStruct struct {
 	Current float32 `json:"current"`
@@ -78,14 +85,22 @@ func GetRoot(w http.ResponseWriter, r *http.Request) {
 
 // RegisterCustomer registers the customer to be listening to a device
 func RegisterCustomer(w http.ResponseWriter, r *http.Request) {
-	deviceID := r.FormValue("deviceId")
-	customerID := r.FormValue("customerId")
-	maxWeight := r.FormValue("maxWeight")
+	decoder := json.NewDecoder(r.Body)
+
+	var data CustomerInformation
+	err := decoder.Decode(&data)
+	if err != nil {
+		panic(err)
+	}
+
+	customerID := data.CustomerID
+	deviceID := data.DeviceID
+	maximumWeight := data.MaximumWeight
 
 	registerCustomerQuery := fmt.Sprintf(`INSERT INTO levelMeter (customerId, maxWeight, deviceId)
-		VALUES ('%s', %s, '%s')`, customerID, maxWeight, deviceID)
+		VALUES ('%s', %s, '%s')`, customerID, maximumWeight, deviceID)
 
-	_, err := db.Query(registerCustomerQuery)
+	_, err = db.Query(registerCustomerQuery)
 	var result map[string]bool
 
 	if err != nil {
@@ -198,13 +213,15 @@ func UpdateLevel(w http.ResponseWriter, r *http.Request) {
 
 	deviceID := r.FormValue("deviceId")
 	levelValue := r.FormValue("level")
+	wirelessValue := r.FormValue("wifi")
 
 	levelUpdateQuery := fmt.Sprintf(`UPDATE levelMeter
 		SET
-			currentWeight=%s
+			currentWeight=%s,
+			wirelessNetwork='%s'
 		WHERE
 			deviceId='%s'
-	`, levelValue, deviceID)
+	`, levelValue, wirelessValue, deviceID)
 
 
 	_, err := db.Query(levelUpdateQuery)
