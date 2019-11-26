@@ -85,22 +85,16 @@ func GetRoot(w http.ResponseWriter, r *http.Request) {
 
 // RegisterCustomer registers the customer to be listening to a device
 func RegisterCustomer(w http.ResponseWriter, r *http.Request) {
-	decoder := json.NewDecoder(r.Body)
 
-	var data CustomerInformation
-	err := decoder.Decode(&data)
-	if err != nil {
-		panic(err)
-	}
+	customerID := r.FormValue("customerId")
+	deviceID := r.FormValue("deviceId")
+	maximumWeight := r.FormValue("maximumWeight")
+	playerID := r.FormValue("playerId")
 
-	customerID := data.CustomerID
-	deviceID := data.DeviceID
-	maximumWeight := data.MaximumWeight
+	registerCustomerQuery := fmt.Sprintf(`INSERT INTO levelMeter (customerId, maxWeight, deviceId, playerId)
+		VALUES ('%s', %s, '%s', '%s')`, customerID, maximumWeight, deviceID, playerID)
 
-	registerCustomerQuery := fmt.Sprintf(`INSERT INTO levelMeter (customerId, maxWeight, deviceId)
-		VALUES ('%s', %s, '%s')`, customerID, maximumWeight, deviceID)
-
-	_, err = db.Query(registerCustomerQuery)
+	_, err := db.Query(registerCustomerQuery)
 	var result map[string]bool
 
 	if err != nil {
@@ -247,7 +241,7 @@ func UpdateLevel(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(payloadJSON)
 
-	TriggerAlert("ROUNAK123", levelValue)
+	TriggerAlert(deviceID, levelValue)
 }
 
 // SetNewAlert creates a new alert registered
@@ -296,27 +290,31 @@ func SetNewAlert(w http.ResponseWriter, r *http.Request) {
 }
 
 // TriggerAlert triggers an alert if set
-func TriggerAlert(customerID string, currentLevel string) {
-	nearestAlertQuery := fmt.Sprintf(`SELECT deviceId, alertLevelPercentage FROM levelAlerts
+func TriggerAlert(deviceID string, currentLevel string) {
+	nearestAlertQuery := fmt.Sprintf(`SELECT u.playerId, t.alertLevelPercentage FROM (SELECT customerId, alertLevelPercentage FROM levelAlerts
 		WHERE alertLevelValue <= (%s + 10) AND alertLevelValue >= %s
-		ORDER BY alertLevelValue DESC LIMIT 1`, currentLevel, currentLevel)
+		ORDER BY alertLevelValue DESC) as t, levelMeter as u WHERE u.customerId=t.customerId`, currentLevel, currentLevel)
 
-	var deviceID string
-	var desiredLevel string
-	err := db.QueryRow(nearestAlertQuery).Scan(&deviceID, &desiredLevel)
+	alertingDevices, err := db.Query(nearestAlertQuery)
+
+	for alertingDevices.Next() {
+		var playerID string
+		var desiredLevel string
+
+		alertingDevices.Scan(&playerID, &desiredLevel)
+
+		desiredLevelFloat, _ := strconv.ParseFloat(desiredLevel, 32)
+		log.Printf("Now sending notification to %s", playerID)
+		CreateLevelAlertNoti(playerID, desiredLevelFloat)
+	}
 
 	if err != nil {
 		return
 	}
-
-	desiredLevelFloat, _ := strconv.ParseFloat(desiredLevel, 32)
-
-	log.Println("Now sending notification")
-	CreateLevelAlertNoti(deviceID, desiredLevelFloat)
 }
 
 // CreateLevelAlertNoti creates a custom message for a particular user
-func CreateLevelAlertNoti(deviceID string, level float64) {
+func CreateLevelAlertNoti(playerID string, level float64) {
 	emoji := "🔔"
 
 	// logic to decide emoji
@@ -333,15 +331,15 @@ func CreateLevelAlertNoti(deviceID string, level float64) {
 	notiHeading := "Kezpo Gas Level Alert"
 	notiContent := fmt.Sprintf(`Your propane level is now %.2f%s %s`, level, "%", emoji)
 
-	SendNoti(notiHeading, notiContent)
-	log.Println("Notification sending success: " + deviceID)
+	SendNoti(notiHeading, notiContent, playerID)
+	log.Println("Notification sending success: " + playerID)
 } 
 
 // SendNoti sends a push notification to a particular client
-func SendNoti(notiHeading string, notiContent string) {
+func SendNoti(notiHeading string, notiContent string, playerID string) {
 
 	baseURL := "https://onesignal.com/api/v1/notifications"
-	payload := strings.NewReader(fmt.Sprintf("{\"app_id\": \"185a1a32-b95b-4b9f-b752-b9ed84ee3d73\", \"headings\": { \"en\": \"%s\"}, \"contents\": {\"en\": \"%s\"}, \"included_segments\": [\"Subscribed Users\"]}", notiHeading, notiContent))
+	payload := strings.NewReader(fmt.Sprintf("{\"app_id\": \"185a1a32-b95b-4b9f-b752-b9ed84ee3d73\", \"headings\": { \"en\": \"%s\"}, \"contents\": {\"en\": \"%s\"}, \"include_player_ids\": [\"%s\"]}", notiHeading, notiContent, playerID))
 
 	req, _ := http.NewRequest("POST", baseURL, payload)
 	req.Header.Add("Content-Type", "application/json; charset=utf-8")
